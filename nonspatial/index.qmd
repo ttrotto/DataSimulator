@@ -1,0 +1,174 @@
+---
+title: "GEM500: Simulating Data"
+author: "Jen Baron & Tommaso Trotto | University of British Columbia, Department of Forest and Conservation Sciences"
+date: "10/02/2024"
+format:
+  html:
+    page-layout: full
+    theme: flatly
+    toc: true
+    toc-float: true
+    toc-location: left
+---
+
+Here is a simple workflow to generate and visualize some data for research proposals. Start by calling some basic packages
+
+```{r}
+#| warning: false
+
+library(ggplot2)
+library(truncnorm)
+library(dplyr)
+library(tidyr)
+
+# set a seed for reproducibility
+set.seed(10)
+```
+
+# Elevation & Timber Harvesting
+
+### Two Continuous variables
+
+Imagine a hypothetical relationship between elevation and timber harvesting. As elevation increases, harvesting decreases. I want to generate some data to demonstrate this relationship. Let's generate a variable (elevation) based on potentially realistic values. 
+
+Here, we generate 20 elevation values with minimum 0m, maximum 1500m, mean 200m, and standard deviation 200m. 
+
+``` {r elevation}
+elevation <- rtruncnorm(a = 0, b = 1500, n = 20, mean = 200, sd = 200)
+```
+
+Next, we generate harvesting values based on our prediction of the negative relationship between elevation and harvesting. To do this, we played around with different slopes and y-intercepts to generate harvesting values that make sense. For a negative relationship, the slope should be negative. We also add a positive intercept because negative harvesting values wouldn't make sense for our data. To create variation in the data, we add some random variability (residuals) from a normal distribution (-50, 50) with mean 0, standard deviation 20.
+
+``` {r harvesting}
+harvesting <- (elevation*(-1/6) + 120)
+
+# y = slope(x) + intercept + random variation
+harvesting_random <- (elevation * (-1 / 6) + 120 + rtruncnorm(a = -50, b = 50, n = 20, mean = 0, sd = 20))
+```
+
+Finally, we join these two simulated vectors in a data frame and use ggplot2 to create a simple plot of my predicted results (@fig-first). 
+
+```{r}
+#| warning: false
+#| label: fig-first
+#| fig-cap: "Relationship between elevation and harvested volume"
+#| fig-subcap: true
+#| layout-ncol: 2
+
+# join
+data1 <- data.frame(
+  "elevation" = elevation,
+  "harvesting" = harvesting,
+  "harvesting_random" = harvesting_random)
+
+# plot linear relationship without variability
+p1 <- ggplot(data1, aes(y = harvesting, x = elevation)) +
+  geom_line(linewidth = 1) + # line
+  labs(x = "Elevation (m)", y = expression(paste("Timber Volume (",m^3, ")"))) + # add axis labels
+  theme_bw()
+p1
+
+# plot linear relationship with variability
+p2 <- ggplot(data1, aes(y = harvesting_random, x = elevation)) +
+  geom_point(alpha = 0.5) + #add point data
+  geom_smooth(method = "lm", se = FALSE, col = "black") + # add linear regression line
+  labs(x = "Elevation (m)", y = expression(paste("Timber Volume (",m^3, ")"))) + # add axis labels
+  theme_bw()
+p2
+```
+
+We can also build an actual regression model to show our relationship.
+
+``` {r model}
+lm1 <- lm(data = data1, harvesting_random ~ elevation)
+summary(lm1)
+```
+
+### Two continuous, one discrete variable
+
+Let's try adding in another (discrete) factor and visualizing the results.
+
+Here, we are adding a random climate column with three categories (wet, moderate, dry). If you want this column to fit a specific prediction, you could specify which cases you want assigned to which climate class (e.g., elevation < 200, timber volume > 50 = wet). This can be easily down with `dplyr::case_when`. Let's see what it looks like now (@fig-second).
+
+```{r climate}
+#| warning: false
+#| label: fig-second
+#| fig-cap: "Relationship between elevation and harvested volume in relation to climate"
+
+# create 3 climate classes with same length of data
+climate <- as.factor(rep(c("Wet", "Moderate", "Dry"), length.out = 20))  # factor for plotting
+
+# concatenate to original data
+data1 <- cbind(data1, climate)
+
+p2 <- ggplot(data1, aes(y = harvesting_random, x = elevation, col = climate)) + # assign color based on climate class
+  geom_point(alpha=0.5) + #a dd point data
+  geom_smooth(method = "lm", se = FALSE) + # add linear regression line (no variability)
+  labs(x = "Elevation (m)", y = expression(paste("Timber Volume (millions ", m^3, ")"))) +# add axis labels
+  theme_bw()
+p2
+```
+
+And below the corresponding model.
+
+``` {r model2}
+lm2 <- lm(data = data1, harvesting_random ~ elevation + climate)
+summary(lm2)
+```
+
+# Bird Species Richness
+
+### One continuous, one discrete variable
+
+This time, let's image the density of birds nesting in different tree species. We hypothesize that bird density is greatest in Douglas-fir, and lower in Cedar and Hemlock.
+
+First, we generate the data for one species (cedar) from a truncated normal distribution. Next, we simulate data for Douglas-fir, relative to cedar (3x the values of cedar, plus some random variation). We then set the values for hemlock to be the same is ceder plus some random variation.
+
+``` {r trunc}
+# rounded to 0 decimal places because these should be integers
+cedar <-  rtruncnorm(a = 0, b = 20, n = 20, mean = 2, sd = 5) %>% round(0)
+fir <- cedar * 3 + rtruncnorm(a = -1, b = 1, n = 20, mean = 0, sd = 1) %>% round(0)
+hemlock <- cedar * 1 + rtruncnorm(a = -1, b = 2, n = 20, mean = 0, sd = 1) %>% round(0)
+```
+
+Next, we join the observations in a data frame and restructure it using `tidyr::pivot_longer` to plot it in `ggplot2` using a boxplot (@fig-third).
+
+```{r}
+#| label: fig-third
+#| fig-cap: "Boxplot of bird density by tree species"
+
+# join
+data2 <- data.frame(
+  "Cedar" = cedar,
+  "Douglas.fir" = fir,
+  "Hemlock" = hemlock) %>%
+  pivot_longer(1:3, names_to = "tree", values_to = "birds") # convert to long formatc
+
+# housekeeping stuff for plotting
+data2 <- as.data.frame(data2)
+data2$tree <- as.factor(data2$tree)
+
+p3 <- ggplot(data2, aes(x=tree, y=birds)) +
+  geom_boxplot(outlier.shape=NA,) + # create boxplots and remove outliers
+  geom_jitter(alpha=0.3) + # add the raw data, alpha specifies transparency
+  labs(y = "Bird Density", x = "Tree Species") + # add axis labels
+  theme_bw()
+p3
+```
+
+Finally, we conduct an [ANOVA](https://en.wikipedia.org/wiki/Analysis_of_variance) to observe whether there are statistically differences between pairs of distributions.
+
+``` {r aov}
+aov1 <- aov(data = data2, birds ~ tree)
+summary(aov1)
+TukeyHSD(aov1)
+```
+
+## Export Results
+
+```{r}
+#| warning: false
+ggsave("figure1.jpg", p1) # specify dpi, width, height, device (png, dpf, etc.) here
+ggsave("figure2.jpg", p2)
+ggsave('figure3.jpg', p3)
+```

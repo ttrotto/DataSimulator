@@ -1,0 +1,230 @@
+---
+title: "GEM500: Simulating Raster Data"
+author: "Sarah Smith-Tripp, Tommaso Trotto, Jen Baron | University of British Columbia"
+email: jenbaron@mail.ubc.ca
+date: "October 18, 2023"
+output:
+  html_document:
+    theme: flatly
+    toc: yes
+    toc_float: yes
+---
+
+```{r, include = F, warnings = F}
+# Install required packages
+packages_list <- c("tidyverse", "terra", "truncnorm", "tmap", "sf", "tmaptools", "here")
+install.packages(setdiff(packages_list, rownames(installed.packages())))
+```
+
+## Warning
+
+If you receive a "*WARNING*: Rtools is required to build R packages", you must download and install Rtools to run this demo. Follow the link below to install.
+
+[R tools installer for R 4.3x](https://cran.r-project.org/bin/windows/Rtools/rtools43/rtools.html)
+
+# Load Packages
+
+```{r, warnings = F, message = F}
+# Load libraries
+library(here)
+library(terra)
+library(tidyverse)
+library(ggplot2)
+library(tmap)
+library(sf)
+library(tmaptools)
+
+tmap_mode("view")  # set dynamic map view
+```
+
+In this tutorial, we will work with some simulated spatial data in `terra` to (1) develop a classification scheme and (2) extract some  data from an area of interest.
+
+Rasters are 2D georeferenced grids filled with values. The data within a raster can describe various characteristics of interest, such as number of trees, slope, or dominant species, all within the pixel size. Satellite imagery are examples of raster data. Rasters are useful in landscape ecology because they allow us to extract spatially-explicit information at a particular spatial resolution. We can also use raster data to understand how different observations relate to one another, at different scales. One such example is how tree height relates to its diameter at the pixel or landscape level.
+
+In the following example, we will use a elevation raster from the book [*Spatial Data Science with R*](https://rspatial.org/) to test whether a relationship exists between elevation and amount of rainfall. Next, we will create a continuous raster (i.e. values are real numbers) to map the relationship.
+
+# Example 1. Elevation and Precipitation
+
+Before running any code, we need to build our hypothesis. We assume that precipitation increases linearly with elevation (i.e. higher elevations receive more rainfall), so let's go away and prepare the data.
+
+First, we need to load in the data and plot it, so we see what it looks like.
+
+```{r}
+# Load data
+elevation_rast <- rast("elevation.tif")
+
+# Plot data using tmap package
+tm_shape(elevation_rast) + tm_raster(title = "Elevation (m)", style = "cont", palette = "GnBu") 
+```
+
+Next, we will use the existing elevation data to create some fake precipitation records and align them with our initial hypothesis that precipitation linearly increases with elevation gain. To do so, we create some random numbers and change the elevation data based on those numbers. So what we are doing here is simply faking a linear relationship by creating precipitation data from the elevation model.
+
+Because we are dealing with random number generation, for reproducibility, we set a seed.
+
+```{r}
+# Set seed
+set.seed(248)
+
+# Generate new continuous values from a normal distribution
+n <- ncell(elevation_rast)  # number of cells in the elevation raster
+elevation <- rnorm(n = n, mean = 500, sd = 100)  # random numbers
+
+# Add some noise to the data to make it look more realistic
+noise <- rnorm(n = n, mean = , sd = 2)
+
+# Create rainfall data based on the hypothesis that rainfall increases linearly with elevation
+rainfall <- 20 + elevation * 0.2 + noise  # a classic linear regression
+```
+
+To demonstrate the relationship, we need to build a linear model where we use elevation data (independent variable, our observation) to predict precipitation (dependent variable).
+
+```{r}
+# Linear model of relationship
+model <- lm(rainfall ~ elevation)
+
+# Let's look at the model
+summary(model)
+
+# And plot it (takes a bit of time)
+df <- data.frame(Rainfall = rainfall, Elevation = elevation)
+figure1 <- ggplot(df, aes(x = Rainfall, y = Elevation)) +
+  geom_point(alpha = 0.5) +
+  scale_y_continuous(breaks = seq(0, 750, 250)) +
+  labs(x = 'Rainfall (mm)', y = 'Elevation (m)') +
+  ggtitle('Scatterplot of rainfall vs elevation')
+figure1
+```
+
+Now we have created a predicted relationship on the hypothesis that precipitation increases linearly with elevation gain. In the following step we will use the relationship to create a prediction of expected rainfall.
+
+First, we will create a prediction raster using `terra::predict` based on the elevation raster. This generates a new raster with predictions based on our initial model. Basically, it looks at a new variable and places it in a specific position in the scatterplot depending on what the model says. For example, given our model `rainfall = 20 + elevation * 0.2`, if I feed a new elevation value of `10`, the corresponding precipitation amount will be `20 + 10 * 0.2 = 22`.
+We do this instead of recycling the rainfall values we created because that is what you would generally do. The predicted values must come from a dataset not used from model training.
+
+```{r}
+# Create a prediction raster using the elevation data and the model we just built
+rainfall_predictions <- terra::predict(elevation_rast, model)
+
+# Plot it
+elevation_map <- tm_shape(elevation_rast) + 
+  tm_raster(title = "Elevation (m)", style = "cont", palette = "GnBu") 
+rainfall_map <- tm_shape(rainfall_predictions) + 
+  tm_raster(title = "Predicted rainfall (mm)", style = "cont", palette = "Blues")
+arrange1 <- tmap_arrange(elevation_map, rainfall_map, nrow = 1)
+arrange1
+```
+
+
+# Example 2. Koalas & Eucalyptus Trees
+
+In this second example we will make another raster to test a different relationship. Suppose we think that the number of koalas is spatially related to the number of eucalyptus trees on the landscape. That is, the more clumped trees are, the more koalas we see.
+
+To do so, we first make a landscape of eucalyptus trees using `terra::rast` filled with random numbers. Then, we calculate the occurrence of eucalyptus trees within a 9x9 moving window using `terra::focal`.
+
+```{r}
+# Create an new landscape with 100x100 cells
+landscape <- terra::rast(xmin=0, xmax=100, ymin=0, ymax=100, ncol=100, nrow=100)
+
+# Add CRS
+crs(landscape) <- 'epsg:32618'  # UTM ZONE 18
+
+# Fill cells with random sample of values (0, 1)
+values <- sample(c(0, 1), ncell(landscape), replace = T)
+landscape <- setValues(landscape, values)
+plot(landscape)
+
+# Create the moving window
+window <- matrix(1, nc = 9, nr = 9)
+
+# Find clumps of eucalyptus trees
+patchy <- focal(landscape, w = window, na.rm = T, pad = T) / 6.12  # divide by constant
+
+# Add CRS
+crs(patchy) <- 'epsg:32618'
+names(patchy) <- 'cover'
+
+# Normalize patchy to range 0 - 1
+mm <- minmax(patchy)
+patchy <- (patchy - mm[1,]) / (mm[2,1] - mm[1,])
+plot(patchy)
+```
+
+Now we have a raster that describes the cover of eucalyptus trees on our landscape, where 0 is no cover and 1 is 100% eucalyptus cover.
+
+In this next section, we will take two samples of 1000 koala bears. The first sample is weighted so that koalas are 40 times more likely to be found next to an area with high eucalyptus cover. In the second example, we randomly distribute the koalas. This is similar to the webworm lab. What this does is taking the `patchy` raster and sample cells from it with a certain probability. If we set this probability at 40, then there is a higher chance of sampling values in `patchy` that are closer to 1. Next, we can calculate the average density of eucalyptus trees within a 10 m buffer of each koala in the two samples.
+
+This step tells us where the koalas are located in the landscape in the form of an index (cell index).
+
+```{r}
+# Create koala distributions with 40% probability
+koalas <- sample(1:ncell(patchy), 1000, prob = patchy[]^40, replace = T)
+
+# Create koala distributions with random placement
+koalas_random <- sample(1:ncell(patchy), 1000, replace = T)
+```
+
+Now that we know in which cells the koalas are, we extract the values from `patchy` corresponding to those cells with a 10 m radius and plot it.
+
+```{r}
+# Convert cell number to XY coordinates
+koala_locations <- xyFromCell(patchy, koalas)
+koala_locations <- st_as_sf(as.data.frame(koala_locations), coords = c('x', 'y')) %>% st_set_crs('epsg:32618')
+koala_locations_random <- xyFromCell(patchy, koalas_random)
+koala_locations_random <- st_as_sf(as.data.frame(koala_locations_random), coords = c('x', 'y')) %>% st_set_crs('epsg:32618')
+
+# Create a buffer around the koala
+koala_locations_10 <- st_buffer(koala_locations, 10)
+koala_locations_random_10 <- st_buffer(koala_locations_random,10)
+
+# Extract the average density of eucalyptus trees around each koala
+tree_koala <- terra::extract(patchy, vect(koala_locations_10), fun = mean)
+tree_koala_random <- terra::extract(patchy, vect(koala_locations_random_10), fun = mean)
+
+# Compare the eucalyptus cover when koalas are closer to trees and when are randomly distributed
+df2 <- data.frame(tree_koala = tree_koala$cover,
+                  tree_koala_random = tree_koala_random$cover) %>%
+       pivot_longer(cols = everything(), names_to = "Type", values_to = "Eucalyptus_Cover")
+figure2 <- ggplot(df2, aes(x = Type, y = Eucalyptus_Cover)) +
+  geom_boxplot() +
+  ggtitle('Boxplot of average eucalyptus cover by koala distribution')
+figure2
+```
+We can also place them in the original landscape.
+
+```{r, include = F}
+tmap_mode("plot")  # reset map view
+```
+
+```{r}
+clustered <- tm_shape(patchy) +
+  tm_raster(palette = "BrBG") + 
+  tm_shape(koala_locations) +
+  tm_bubbles(size = 0.1) + 
+  tm_layout(legend.show = FALSE, main.title = "Spatially Clustered")
+
+non_clustered <- tm_shape(patchy) + 
+  tm_raster(palette = "BrBG") +
+  tm_shape(koala_locations_random) +
+  tm_bubbles(size = 0.1, col= "cornflowerblue") +
+  tm_layout(legend.outside = TRUE, main.title = "Randomly Distributed")
+
+arrange2 <- tmap::tmap_arrange(clustered, non_clustered, widths = c(0.8, 1.2))
+arrange2
+```
+
+# Export Results
+
+```{r, warnings = F, message = F}
+ggsave("figure1.jpg", figure1)
+ggsave("figure2.jpg", figure2)
+tmap::tmap_save(arrange1, "figure3.jpg")
+tmap::tmap_save(arrange2, "figure4.jpg")
+```
+
+# Reproducibility
+
+This tells us when we ran our analysis, under what operating system, and what packages we used.
+
+```{r}
+Sys.time()
+sessionInfo()
+```
