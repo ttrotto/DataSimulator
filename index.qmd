@@ -88,7 +88,7 @@ summary(lm1)
 
 Let's try adding in another (discrete) factor and visualizing the results.
 
-Here, we are adding a random climate column with three categories (wet, moderate, dry). If you want this column to fit a specific prediction, you could specify which cases you want assigned to which climate class (e.g., elevation < 200, timber volume > 50 = wet). This can be easily down with `dplyr::case_when`. Let's see what it looks like now (@fig-second).
+Here, we are adding a random climate column with three categories (wet, moderate, dry). If you want this column to fit a specific prediction, you could specify which cases you want assigned to which climate class (e.g., elevation < 200, timber volume > 50 = wet). This can be easily done with `dplyr::case_when`. Let's see what it looks like now (@fig-second).
 
 ```{r climate}
 #| warning: false
@@ -120,7 +120,7 @@ summary(lm2)
 
 ### One continuous, one discrete variable
 
-This time, let's image the density of birds nesting in different tree species. We hypothesize that bird density is greatest in Douglas-fir, and lower in Cedar and Hemlock.
+This time, let's image the density of birds nesting in different tree species. We hypothesize that bird density is greatest in Douglas fir, and lower in Cedar and Hemlock.
 
 First, we generate the data for one species (cedar) from a truncated normal distribution. Next, we simulate data for Douglas-fir, relative to cedar (3x the values of cedar, plus some random variation). We then set the values for hemlock to be the same is ceder plus some random variation.
 
@@ -142,15 +142,15 @@ data2 <- data.frame(
   "Cedar" = cedar,
   "Douglas.fir" = fir,
   "Hemlock" = hemlock) %>%
-  pivot_longer(1:3, names_to = "tree", values_to = "birds") # convert to long formatc
+  pivot_longer(1:3, names_to = "tree", values_to = "birds") # convert to long format
 
 # housekeeping stuff for plotting
 data2 <- as.data.frame(data2)
 data2$tree <- as.factor(data2$tree)
 
-p3 <- ggplot(data2, aes(x=tree, y=birds)) +
-  geom_boxplot(outlier.shape=NA,) + # create boxplots and remove outliers
-  geom_jitter(alpha=0.3) + # add the raw data, alpha specifies transparency
+p3 <- ggplot(data2, aes(x = tree, y = birds)) +
+  geom_boxplot(outlier.shape = NA) + # create boxplots and remove outliers
+  geom_jitter(alpha = 0.3) + # add the raw data, alpha specifies transparency
   labs(y = "Bird Density", x = "Tree Species") + # add axis labels
   theme_bw()
 p3
